@@ -1,0 +1,75 @@
+name: Weekly Telegram Bot API Build
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # Runs every Sunday at midnight
+  workflow_dispatch:    # Allows you to trigger it manually
+
+jobs:
+  build-if-changed:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get Upstream Commit and Alpine Digest
+        id: versions
+        run: |
+          # 1. Fetch the latest commit hash from tdlib
+          LATEST_COMMIT=$(git ls-remote https://github.com/tdlib/telegram-bot-api.git HEAD | awk '{print $1}')
+          
+          # 2. Fetch the latest SHA256 digest of alpine:latest using skopeo
+          ALPINE_DIGEST=$(skopeo inspect docker://docker.io/library/alpine:latest | jq -r '.Digest')
+          
+          # Extract a short 12-character string from the Alpine digest to keep our tag clean
+          SHORT_DIGEST=$(echo $ALPINE_DIGEST | sed 's/sha256://' | cut -c 1-12)
+          
+          # 3. Create a combined unique tag
+          UNIQUE_TAG="${LATEST_COMMIT}-${SHORT_DIGEST}"
+          echo "tag=$UNIQUE_TAG" >> $GITHUB_OUTPUT
+          
+          echo "Upstream commit: $LATEST_COMMIT"
+          echo "Alpine digest: $ALPINE_DIGEST"
+          echo "Combined Build Tag: $UNIQUE_TAG"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if image already exists
+        id: check
+        run: |
+          IMAGE_TAG="ghcr.io/${{ github.repository_owner }}/telegram-bot-api:${{ steps.versions.outputs.tag }}"
+          IMAGE_TAG=$(echo "$IMAGE_TAG" | tr '[:upper:]' '[:lower:]')
+          
+          if docker manifest inspect $IMAGE_TAG > /dev/null 2>&1; then
+            echo "Image with this tdlib commit AND Alpine base already exists. Skipping build."
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Update detected (either tdlib or Alpine). Proceeding with build."
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        if: steps.check.outputs.exists != 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and Push Docker Image
+        if: steps.check.outputs.exists != 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          # We don't need build-args anymore since Portainer handles secrets!
+          tags: |
+            ${{ steps.check.outputs.image_tag }}
+            ghcr.io/${{ github.repository_owner }}/telegram-bot-api:latest
