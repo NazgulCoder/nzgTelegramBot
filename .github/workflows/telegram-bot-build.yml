@@ -43,11 +43,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Check if image already exists
+      - name: Check if image already exists and prepare tags
         id: check
         run: |
-          IMAGE_TAG="ghcr.io/${{ github.repository_owner }}/telegram-bot-api:${{ steps.versions.outputs.tag }}"
-          IMAGE_TAG=$(echo "$IMAGE_TAG" | tr '[:upper:]' '[:lower:]')
+          # Convert the repository owner to lowercase
+          REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          
+          # Construct the tags safely in lowercase
+          IMAGE_TAG="ghcr.io/$REPO_OWNER/telegram-bot-api:${{ steps.versions.outputs.tag }}"
+          LATEST_TAG="ghcr.io/$REPO_OWNER/telegram-bot-api:latest"
           
           if docker manifest inspect $IMAGE_TAG > /dev/null 2>&1; then
             echo "Image with this tdlib commit AND Alpine base already exists. Skipping build."
@@ -57,7 +61,9 @@ jobs:
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
           
+          # Save both tags to be used in the build step
           echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
         if: steps.check.outputs.exists != 'true'
@@ -72,4 +78,4 @@ jobs:
           # We don't need build-args anymore since Portainer handles secrets!
           tags: |
             ${{ steps.check.outputs.image_tag }}
-            ghcr.io/${{ github.repository_owner }}/telegram-bot-api:latest
+            ${{ steps.check.outputs.latest_tag }}
