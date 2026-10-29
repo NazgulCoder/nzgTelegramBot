@@ -20,4 +20,4 @@ EXPOSE 8081
 
 # /bin/sh -c will read the variables provided by Portainer at runtime
 ENTRYPOINT ["/bin/sh", "-c"]
-CMD ["/app/telegram-bot-api --api-id=$API_ID --api-hash=$API_HASH --local"]
+CMD ["/app/telegram-bot-api --api-id=$API_ID --api-hash=$API_HASH --local --verbosity=5 --log=/var/log/telegram-bot-api.log"]
